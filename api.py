@@ -1,121 +1,103 @@
 import aiohttp
-import asyncio
 import logging
 
 _LOGGER = logging.getLogger(__name__)
 
 class CosyAPI:
-    """Class to interact with the Geo Cosy API."""
-
     def __init__(self, username, password):
         self.base_url = "https://cosy.geotogether.com/api/userapi/"
         self.username = username
         self.password = password
         self.token = None
         self.system_id = None
-        self.session = None  # Session will be initialized during __aenter__()
-
-    async def __aenter__(self):
-        """Initialize the aiohttp session when entering the async context."""
-        if not self.session:  # Ensure the session is created only if it doesn't exist
-            self.session = aiohttp.ClientSession()
-        return self
-
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        """Close the aiohttp session when exiting the async context."""
-        if self.session:
-            await self.session.close()
-            self.session = None  # Explicitly set session to None after closing it
 
     async def login(self):
-        """Log in to the Geo Cosy API and retrieve a token."""
         login_url = self.base_url + "account/login"
-
-        try:
-            async with self.session.post(
-                login_url,
-                json={"name": self.username, "emailAddress": self.username, "password": self.password},
-            ) as response:
-                if response.status != 200:
-                    raise RuntimeError(f"Login failed: {response.status} - {await response.text()}")
-                data = await response.json()
-                self.token = data.get("token")
-                return self.token
-        except aiohttp.ClientError as e:
-            raise RuntimeError(f"Error during login: {e}")
+        async with aiohttp.ClientSession() as session:
+            try:
+                async with session.post(login_url, json={"name": self.username, "emailAddress": self.username, "password": self.password}) as response:
+                    if response.status == 401:
+                        _LOGGER.error("Unauthorized: Check your username and password")
+                    response.raise_for_status()
+                    data = await response.json()
+                    self.token = data["token"]
+                    _LOGGER.debug("Login successful, token retrieved")
+                    return self.token
+            except aiohttp.ClientError as e:
+                _LOGGER.error("Error during login: %s, message='%s', url='%s'", e.status, e.message, e.request_info.url)
+                return None
 
     async def get_system_id(self):
-        """Retrieve the system ID for the user."""
-        if not self.token:
-            await self.login()
-
         data_url = self.base_url + "user/detail-systems?peripherals=true"
         headers = {"Authorization": f"Bearer {self.token}"}
-        try:
-            async with self.session.get(data_url, headers=headers) as response:
-                if response.status != 200:
-                    raise RuntimeError(f"Failed to get system ID: {response.status} - {await response.text()}")
-                data = await response.json()
-                self.system_id = data.get("systemRoles", [{}])[0].get("systemId")
-                return self.system_id
-        except aiohttp.ClientError as e:
-            raise RuntimeError(f"Error getting system ID: {e}")
-
-    async def get_current_temperature(self):
-        """Retrieve the current temperature."""
-        if not self.token or not self.system_id:
-            await self.login()
-            await self.get_system_id()
-
-        data_url = self.base_url + f"system/cosy-live-data/{self.system_id}"
-        headers = {"Authorization": f"Bearer {self.token}"}
-        try:
-            async with self.session.get(data_url, headers=headers) as response:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(data_url, headers=headers) as response:
                 response.raise_for_status()
                 data = await response.json()
-                if "temperatureList" in data and data["temperatureList"]:
-                    temperature = data["temperatureList"][0].get("value")
-                    return temperature
-                else:
-                    _LOGGER.error("Temperature list is missing or empty in the API response.")
-                    return None
-        except aiohttp.ClientError as e:
-            _LOGGER.error(f"Error retrieving temperature: {e}")
-            return None
+                self.system_id = data["systemRoles"][0]["systemId"]
+                _LOGGER.debug("System ID retrieved: %s", self.system_id)
 
-    async def get_current_preset(self):
-        """Retrieve the current preset mode."""
-        if not self.token or not self.system_id:
-            await self.login()
-            await self.get_system_id()
-
+    async def get_current_temperature(self):
         data_url = self.base_url + f"system/cosy-live-data/{self.system_id}"
         headers = {"Authorization": f"Bearer {self.token}"}
-        try:
-            async with self.session.get(data_url, headers=headers) as response:
-                if response.status != 200:
-                    raise RuntimeError(f"Failed to get preset: {response.status} - {await response.text()}")
+        async with aiohttp.ClientSession() as session:
+            async with session.get(data_url, headers=headers) as response:
+                response.raise_for_status()
                 data = await response.json()
-                if "controllerStatusList" in data and data["controllerStatusList"]:
-                    mode = data["controllerStatusList"][0].get("currentMode")
-                    return {0: "hibernate", 1: "slumber", 2: "comfy", 3: "cosy"}.get(mode, "unknown")
-                else:
-                    raise ValueError("Preset mode data not available")
-        except aiohttp.ClientError as e:
-            raise RuntimeError(f"Error retrieving preset mode: {e}")
+                temperature = data["temperatureList"][0]["value"]
+                _LOGGER.debug("Current temperature retrieved: %s", temperature)
+                return temperature
 
-    async def update(self):
-        """Retrieve the current state (temperature and preset mode)."""
-        try:
-            current_temp = await self.get_current_temperature()
-            current_mode = await self.get_current_preset()
-            return {"current_temp": current_temp, "current_mode": current_mode}
-        except Exception as e:
-            raise RuntimeError(f"Error updating Cosy API: {e}")
+    async def get_current_preset(self):
+        data_url = self.base_url + f"system/cosy-live-data/{self.system_id}"
+        headers = {"Authorization": f"Bearer {self.token}"}
+        async with aiohttp.ClientSession() as session:
+            async with session.get(data_url, headers=headers) as response:
+                response.raise_for_status()
+                data = await response.json()
+                preset = data["controllerStatusList"][0]["currentMode"]
+                _LOGGER.debug("Current preset mode retrieved: %s", preset)
+                return preset
 
-    @property
-    def unique_id(self):
-        """Generate a unique ID using system_id."""
-        if not self.system_id:
-            raise RuntimeError("System ID not available")
-        return f"cosy_thermostat_{self.system_id}"
+    async def set_preset_mode(self, mode):
+        if mode == "slumber":
+            set_mode_url = self.base_url + f"system/cosy-cancelallevents/{self.system_id}?zone=0"
+            headers = {"Authorization": f"Bearer {self.token}"}
+            async with aiohttp.ClientSession() as session:
+                async with session.delete(set_mode_url, headers=headers) as response:
+                    response.raise_for_status()
+                    _LOGGER.debug("Preset mode set to %s", mode)
+        else:
+            mode_id = {"comfy": 2, "cosy": 3}.get(mode, 0)
+            set_mode_url = self.base_url + f"system/cosy-adhocmode/{self.system_id}"
+            headers = {
+                "Authorization": f"Bearer {self.token}",
+                "Content-Type": "application/json"
+            }
+            payload = {
+                "modeId": mode_id,
+                "startOffset": 0,
+                "duration": 60,  # Default duration, can be adjusted
+                "welcomeHomeActive": False,
+                "zone": "0"
+            }
+            async with aiohttp.ClientSession() as session:
+                async with session.post(set_mode_url, json=payload, headers=headers) as response:
+                    response.raise_for_status()
+                    _LOGGER.debug("Preset mode set to %s", mode)
+
+    async def set_target_temperature(self, mode, temperature):
+        data_url = self.base_url + f"system/cosy-live-data/{self.system_id}"
+        headers = {"Authorization": f"Bearer {self.token}"}
+        async with aiohttp.ClientSession() as session:
+            async with session.post(data_url, headers=headers, json={"mode": mode, "temperature": temperature}) as response:
+                response.raise_for_status()
+                _LOGGER.debug("Target temperature set to %s for mode %s", temperature, mode)
+
+    async def set_hibernate_mode(self, state):
+        data_url = self.base_url + f"system/cosy-instandby/{self.system_id}"
+        headers = {"Authorization": f"Bearer {self.token}"}
+        async with aiohttp.ClientSession() as session:
+            async with session.post(data_url, headers=headers, json={"value": state}) as response:
+                response.raise_for_status()
+                _LOGGER.debug("Hibernate mode set to %s", state)
