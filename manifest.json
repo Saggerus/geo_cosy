@@ -2,9 +2,11 @@
   "domain": "geo_cosy",
   "name": "Geo Cosy",
   "version": "1.0.0",
-  "documentation": "https://www.example.com",
+  "documentation": "https://github.com/Saggerus/geo_cosy/tree/main#readme",
   "requirements": [],
   "dependencies": [],
-  "codeowners": ["@your_github_username"],
-  "config_flow": true
+  "codeowners": ["@saggerus"],
+  "config_flow": true,
+  "icon": "icon.png",
+  "logo": "logo.png"
 }

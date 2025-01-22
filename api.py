@@ -21,7 +21,6 @@ class CosyAPI:
                     response.raise_for_status()
                     data = await response.json()
                     self.token = data["token"]
-                    _LOGGER.debug("Login successful, token retrieved")
                     return self.token
             except aiohttp.ClientError as e:
                 _LOGGER.error("Error during login: %s, message='%s', url='%s'", e.status, e.message, e.request_info.url)
@@ -35,7 +34,6 @@ class CosyAPI:
                 response.raise_for_status()
                 data = await response.json()
                 self.system_id = data["systemRoles"][0]["systemId"]
-                _LOGGER.debug("System ID retrieved: %s", self.system_id)
 
     async def get_current_temperature(self):
         data_url = self.base_url + f"system/cosy-live-data/{self.system_id}"
@@ -45,7 +43,6 @@ class CosyAPI:
                 response.raise_for_status()
                 data = await response.json()
                 temperature = data["temperatureList"][0]["value"]
-                _LOGGER.debug("Current temperature retrieved: %s", temperature)
                 return temperature
 
     async def get_current_preset(self):
@@ -56,8 +53,39 @@ class CosyAPI:
                 response.raise_for_status()
                 data = await response.json()
                 preset = data["controllerStatusList"][0]["currentMode"]
-                _LOGGER.debug("Current preset mode retrieved: %s", preset)
                 return preset
+
+    async def get_target_temperature(self, preset_mode):
+        data_url = self.base_url + f"system/all-cosy-settings/{self.system_id}"
+        headers = {"Authorization": f"Bearer {self.token}"}
+        async with aiohttp.ClientSession() as session:
+            async with session.get(data_url, headers=headers) as response:
+                response.raise_for_status()
+                data = await response.json()
+                getter = preset_mode.lower() + "Temperature"
+                target_temp = data["temperatureSetPoints"][getter]
+                return target_temp
+
+    async def set_target_temperature(self, preset_mode, temperature):
+        data_url = self.base_url + f"system/cosy-temperature-set-points/{self.system_id}"
+        headers = {"Authorization": f"Bearer {self.token}", "Content-Type": "application/json"}
+        async with aiohttp.ClientSession() as session:
+            current_data = await self.get_all_settings()
+            set_points = current_data["temperatureSetPoints"]
+            set_mode = preset_mode.lower() + "Temperature"
+            set_points[set_mode] = temperature
+            payload = set_points
+            async with session.post(data_url, json=payload, headers=headers) as response:
+                response.raise_for_status()
+
+    async def get_all_settings(self):
+        data_url = self.base_url + f"system/all-cosy-settings/{self.system_id}"
+        headers = {"Authorization": f"Bearer {self.token}"}
+        async with aiohttp.ClientSession() as session:
+            async with session.get(data_url, headers=headers) as response:
+                response.raise_for_status()
+                data = await response.json()
+                return data
 
     async def set_preset_mode(self, mode):
         if mode == "slumber":
@@ -66,7 +94,6 @@ class CosyAPI:
             async with aiohttp.ClientSession() as session:
                 async with session.delete(set_mode_url, headers=headers) as response:
                     response.raise_for_status()
-                    _LOGGER.debug("Preset mode set to %s", mode)
         else:
             mode_id = {"comfy": 2, "cosy": 3}.get(mode, 0)
             set_mode_url = self.base_url + f"system/cosy-adhocmode/{self.system_id}"
@@ -84,15 +111,6 @@ class CosyAPI:
             async with aiohttp.ClientSession() as session:
                 async with session.post(set_mode_url, json=payload, headers=headers) as response:
                     response.raise_for_status()
-                    _LOGGER.debug("Preset mode set to %s", mode)
-
-    async def set_target_temperature(self, mode, temperature):
-        data_url = self.base_url + f"system/cosy-live-data/{self.system_id}"
-        headers = {"Authorization": f"Bearer {self.token}"}
-        async with aiohttp.ClientSession() as session:
-            async with session.post(data_url, headers=headers, json={"mode": mode, "temperature": temperature}) as response:
-                response.raise_for_status()
-                _LOGGER.debug("Target temperature set to %s for mode %s", temperature, mode)
 
     async def set_hibernate_mode(self, state):
         data_url = self.base_url + f"system/cosy-instandby/{self.system_id}"
@@ -100,4 +118,3 @@ class CosyAPI:
         async with aiohttp.ClientSession() as session:
             async with session.post(data_url, headers=headers, json={"value": state}) as response:
                 response.raise_for_status()
-                _LOGGER.debug("Hibernate mode set to %s", state)

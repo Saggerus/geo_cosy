@@ -19,15 +19,12 @@ class GeoCosyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             # Validate the input
             try:
-                _LOGGER.debug("Attempting to log in with provided credentials")
                 # Attempt to login with provided credentials
                 api = CosyAPI(user_input["username"], user_input["password"])
                 token = await api.login()
                 if token:
-                    _LOGGER.debug("Successfully logged in")
                     return self.async_create_entry(title="Geo Cosy", data=user_input)
                 else:
-                    _LOGGER.error("Failed to log in, cannot_connect")
                     errors["base"] = "cannot_connect"
             except Exception as e:
                 _LOGGER.error("Exception occurred: %s", e)
