@@ -1,6 +1,6 @@
 This is a Home Assistant custom integration that allows control of Geo Cosy thermostats (https://cosy.support.geotogether.com/en/support/solutions/articles/7000011187-introducing-cosy)
 
-I've only provided support for a single thermostat and zone (you're welocome to try it with multiple, but I only have the one so don't know what would happen)
+I've only provided support for a single thermostat and zone (you're welcome to try it with multiple, but I only have the one so don't know what would happen)
 
 Note: This is an unofficial ingtegration, which uses the same calls as the Cosy website.  As it is unofficial, I cannot guarantee that Geo won't block it's use or your account especially if you are making a crazy number of calls to their site.  Use at your own risk.  I've not had any issues myself so far, but will post here should I encounter any problems.
 
